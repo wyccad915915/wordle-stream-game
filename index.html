@@ -30,7 +30,7 @@
             <div class="controls-column">
                 <!-- Top Controls (Stats, Settings, Theme) -->
                 <div class="top-controls">
-                    <button id="stats-btn" class="icon-btn">
+                    <button id="stats-btn" class="icon-btn" aria-label="View Statistics">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 3v18h18"></path>
                             <path d="M18 17V9"></path>
@@ -38,13 +38,13 @@
                             <path d="M8 17v-3"></path>
                         </svg>
                     </button>
-                    <button id="settings-btn" class="icon-btn">
+                    <button id="settings-btn" class="icon-btn" aria-label="Open Settings">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <circle cx="12" cy="12" r="3"></circle>
                             <path d="M12 1v6m0 6v6m5.2-13.2l-4.2 4.2m0 6l-4.2 4.2M23 12h-6m-6 0H1m18.2 5.2l-4.2-4.2m0-6l-4.2-4.2"></path>
                         </svg>
                     </button>
-                    <button id="theme-toggle" class="icon-btn">
+                    <button id="theme-toggle" class="icon-btn" aria-label="Toggle Dark Mode">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
                         </svg>
@@ -156,7 +156,6 @@
                     </select>
                 </div>
                 <div class="setting-row">
-                <div class="setting-row">
                     <div class="setting-text">
                         <div class="setting-title">Warn Ruled-Out Letters</div>
                         <div class="setting-description">Show confirmation when using letters marked gray</div>
@@ -177,6 +176,22 @@
             <div class="confirm-buttons">
                 <button id="confirm-cancel" class="btn btn-secondary">Cancel</button>
                 <button id="confirm-submit" class="btn btn-primary">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- End Game Modal -->
+    <div id="endgame-modal" class="modal">
+        <div class="modal-content endgame-content">
+            <button class="close-btn" data-modal="endgame-modal">&times;</button>
+            <div class="endgame-body">
+                <h2 id="endgame-title">You Won! 🏆</h2>
+                <div id="endgame-answer-container" style="display: none;">
+                    <p class="endgame-text">The answer was:</p>
+                    <div id="endgame-answer" class="answer-pill"></div>
+                </div>
+                <button id="endgame-new-game" class="primary-btn">NEW GAME</button>
+                <p class="endgame-hint">or press Enter to play again</p>
             </div>
         </div>
     </div>

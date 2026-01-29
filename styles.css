@@ -150,8 +150,8 @@ body {
     font-size: 13px;
     font-weight: 600;
     border: 2px solid var(--border-color);
-    background: var(--bg-color);
-    color: var(--text-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
     border-radius: 6px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -166,7 +166,7 @@ body {
 
 .stack-btn:hover:not(:disabled) {
     background: var(--tile-bg);
-    border-color: var(--text-color);
+    border-color: var(--text-primary);
     transform: translateY(-1px);
 }
 
@@ -342,6 +342,20 @@ body {
     20%, 40%, 60%, 80% { transform: translateX(5px); }
 }
 
+/* Respect reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+    .tile.flip {
+        animation: none;
+    }
+    .row.shake {
+        animation: none;
+    }
+    * {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
 /* ============================================
    MESSAGE DISPLAY
    ============================================ */
@@ -353,11 +367,11 @@ body {
    TOAST OVERLAY (No Layout Shift)
    ============================================ */
 .toast {
-    position: absolute;
+    position: fixed;
     left: 50%;
     top: 12px;
     transform: translateX(-50%);
-    z-index: 100;
+    z-index: 2000;
     
     background-color: var(--text-primary);
     color: var(--bg-primary);
@@ -464,16 +478,19 @@ body.dark-mode .toast {
     overflow-y: auto;
 }
 
-.modal[style*="block"] {
-    display: flex !important;
-    align-items: center;
-    justify-content: center;
-}
-
 .modal.show {
     display: flex;
     align-items: center;
     justify-content: center;
+}
+
+#confirm-dialog {
+    z-index: 99999;
+}
+
+#confirm-dialog .modal-content {
+    position: relative;
+    z-index: 100000;
 }
 
 .modal-content {
@@ -840,7 +857,7 @@ input:checked + .toggle-slider:before {
 }
 
 .tile:not(.submitted):hover {
-    border-color: var(--text-color);
+    border-color: var(--text-primary);
     opacity: 0.8;
 }
 
@@ -871,4 +888,72 @@ body.dark-mode .tile.active-cell {
         padding: 8px 12px;
         font-size: 12px;
     }
+}
+
+/* ============================================
+   END GAME MODAL
+   ============================================ */
+.endgame-content {
+    max-width: 400px;
+    text-align: center;
+}
+
+.endgame-body {
+    padding: 20px;
+}
+
+#endgame-title {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--text-primary);
+}
+
+.endgame-text {
+    font-size: 16px;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+}
+
+.answer-pill {
+    display: inline-block;
+    padding: 12px 24px;
+    background: var(--tile-bg);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    margin-bottom: 24px;
+    color: var(--text-primary);
+}
+
+.primary-btn {
+    padding: 14px 32px;
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--correct);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-bottom: 12px;
+    width: 100%;
+}
+
+.primary-btn:hover {
+    background: #4caf50;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(106, 170, 100, 0.4);
+}
+
+.primary-btn:active {
+    transform: translateY(0);
+}
+
+.endgame-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-style: italic;
 }

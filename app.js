@@ -9,18 +9,22 @@
 let currentWordLength = 5;
 let words = [];
 let allowedWords = [];
+let allowedWordsSet = new Set();
 let targetWord = '';
 
 // Game state - now with dynamic rows and cursor
 let gameState = {
     guesses: [],
     currentRow: 0,
-    currentRowLetters: [],  // Array instead of string for cursor editing
+    currentRowLetters: Array(5).fill(''),  // Initialize with 5 empty strings (default word length)
     currentCellIndex: 0,    // Cursor position in current row
     gameOver: false,
     won: false,
     rowCount: 6            // Dynamic row count (was const MAX_GUESSES)
 };
+
+// Submission lock to prevent overlapping submits
+let isRevealing = false;
 
 // Stats
 let stats = {
@@ -36,13 +40,17 @@ let settings = {
     warnRuledOut: true
 };
 
+// Track active confirm dialog to prevent multiple overlapping dialogs
+let activeConfirm = null; // { resolve, cleanup }
+
 // ============================================
 // INITIALIZATION
 // ============================================
 
 document.addEventListener('DOMContentLoaded', async () => {
+    await loadGameState();
     await loadWordLists();
-    loadGameState();
+    ensureTargetWord();
     loadStats();
     loadSettings();
     loadTheme();
@@ -67,12 +75,26 @@ async function loadWordLists() {
         words = await wordsResponse.json();
         allowedWords = await allowedResponse.json();
         
-        if (!targetWord || targetWord.length !== currentWordLength) {
-            targetWord = words[Math.floor(Math.random() * words.length)].toUpperCase();
-        }
+        // Create uppercase set for fast lookup
+        allowedWordsSet = new Set(allowedWords.map(w => w.toUpperCase()));
+        
+        // Ensure solution words are always considered valid
+        words.forEach(w => allowedWordsSet.add(w.toUpperCase()));
     } catch (error) {
         console.error('Error loading word lists:', error);
         showMessage('Failed to load word lists. Please refresh.');
+    }
+}
+
+function ensureTargetWord() {
+    if (targetWord && targetWord.length === currentWordLength) {
+        return; // Keep existing target
+    }
+    
+    // Pick new target word
+    if (words.length > 0) {
+        targetWord = words[Math.floor(Math.random() * words.length)].toUpperCase();
+        saveGameState();
     }
 }
 
@@ -84,6 +106,7 @@ function moveCursor(newIndex) {
     if (gameState.gameOver) return;
     
     gameState.currentCellIndex = Math.max(0, Math.min(newIndex, currentWordLength - 1));
+    saveGameState();
     updateBoard();
 }
 
@@ -94,6 +117,7 @@ function handleCellClick(rowIndex, cellIndex) {
     }
     
     gameState.currentCellIndex = cellIndex;
+    saveGameState();
     updateBoard();
 }
 
@@ -241,54 +265,103 @@ function checkGuess(guess) {
 // GUESS SUBMISSION
 // ============================================
 
-async function submitGuess() {
+async function submitGuess(forced = false) {
     if (gameState.gameOver) return;
+    if (isRevealing) return;
     
-    // Check if row is fully filled
-    const currentGuess = gameState.currentRowLetters.join('');
-    if (currentGuess.length !== currentWordLength) {
-        showMessage('Not enough letters');
+    if (!targetWord || targetWord.length !== currentWordLength) {
+        showMessage('Word not loaded yet. Please wait a moment.', 1500);
+        return;
+    }
+    
+    // Check all cells are filled (no empty strings)
+    const allFilled = gameState.currentRowLetters.every(letter => 
+        letter && /^[A-Z]$/i.test(letter)
+    );
+    
+    if (!allFilled) {
+        showMessage('Not enough letters', 1500);
         shakeRow();
         return;
     }
     
-    // Validate word
-    if (!allowedWords.map(w => w.toUpperCase()).includes(currentGuess)) {
-        showMessage('Not in word list');
+    const currentWord = gameState.currentRowLetters.join('');
+    
+    // Check if word is in dictionary (fast Set lookup)
+    if (!allowedWordsSet.has(currentWord)) {
+        showMessage('Not in word list', 2000);
         shakeRow();
         return;
     }
     
-    // Check ruled out letters if warning enabled
-    if (settings.warnRuledOut && hasRuledOutLetters(currentGuess)) {
-        const confirmed = await showConfirmDialog(
-            'This guess contains letters you\'ve already ruled out. Submit anyway?'
-        );
-        if (!confirmed) return;
+    // Sleepy safety: check for ruled-out letters (only if not forced)
+    if (!forced && settings.warnRuledOut) {
+        const ruledOutLetters = getRuledOutLettersInGuess(currentWord);
+        if (ruledOutLetters.length > 0) {
+            const letterList = ruledOutLetters.join(', ');
+            try {
+                const confirmed = await showConfirmDialog(
+                    `This guess contains letters you've already ruled out: ${letterList}. Submit anyway?`
+                );
+                if (!confirmed) return; // User cancelled - stay in same row
+            } catch (error) {
+                console.error('Confirm dialog error:', error);
+                return; // Treat error as cancelled
+            }
+        }
     }
     
-    // Add guess to history
-    gameState.guesses.push(currentGuess);
+    // Lock submissions during reveal (with try/finally to ensure unlock)
+    isRevealing = true;
     
-    // Animate reveal
-    await animateReveal();
-    
-    // Check win/loss
-    if (currentGuess === targetWord) {
-        handleWin();
-    } else if (gameState.currentRow >= gameState.rowCount - 1) {
-        handleLoss();
-    } else {
+    try {
+        // Add guess to history
+        gameState.guesses.push(currentWord);
+        saveGameState(); // persist immediately before animation
+        
+        // Reveal animation (await completion)
+        await animateReveal(currentWord);
+        
+        // Check win condition
+        if (currentWord === targetWord) {
+            handleWin();
+            return;
+        }
+        
         // Move to next row
         gameState.currentRow++;
         gameState.currentRowLetters = Array(currentWordLength).fill('');
         gameState.currentCellIndex = 0;
+        
+        // Check loss condition
+        if (gameState.currentRow >= gameState.rowCount) {
+            handleLoss();
+            return;
+        }
+        
+        // Update UI
+        updateBoard();
+        updateRowControls();
+        saveGameState();
+    } finally {
+        // Always unlock, even if error occurs
+        isRevealing = false;
     }
-    
-    updateBoard();
-    updateRowControls();
-    saveGameState();
 }
+
+function getRuledOutLettersInGuess(guess) {
+    const ruledOut = getRuledOutLetters();
+    const uniqueRuledOut = new Set();
+    
+    guess.split('').forEach(letter => {
+        if (ruledOut.has(letter)) {
+            uniqueRuledOut.add(letter);
+        }
+    });
+    
+    return Array.from(uniqueRuledOut);
+}
+
 
 function handleWin() {
     gameState.gameOver = true;
@@ -311,15 +384,18 @@ function handleWin() {
     saveStats();
     updateStreakDisplay();
     
-    // Fire confetti immediately
+    // Show win toast immediately
+    showToast('Excellent! 🎉', 2000);
+    
+    // Fire confetti
     setTimeout(() => {
         showConfetti();
     }, 600);
     
+    // Show end game modal after confetti plays (~3.5s total)
     setTimeout(() => {
-        showMessage(`🎉 You won! The word was ${targetWord}`, 3000);
-        setTimeout(() => showStatsModal(), 500);
-    }, 1500);
+        showEndGameModal(true);
+    }, 3500);
 }
 
 function handleLoss() {
@@ -333,15 +409,10 @@ function handleLoss() {
     saveStats();
     updateStreakDisplay();
     
+    // Show end game modal after animation completes
     setTimeout(() => {
-        showMessage(`Game over! The word was ${targetWord}`, 3000);
-        setTimeout(() => showStatsModal(), 500);
-    }, 1500);
-}
-
-function hasRuledOutLetters(guess) {
-    const ruledOut = getRuledOutLetters();
-    return guess.split('').some(letter => ruledOut.has(letter));
+        showEndGameModal(false, targetWord);
+    }, 2000);
 }
 
 function getRuledOutLetters() {
@@ -365,7 +436,9 @@ function getRuledOutLetters() {
         });
     });
     
-    // Only return letters that are truly absent (never correct or present)
+    // Return ONLY letters that are truly ruled out:
+    // - Never marked correct or present across ALL guesses
+    // - Marked absent at least once
     const ruledOut = new Set();
     for (const [letter, status] of Object.entries(letterStatus)) {
         if (status === 'absent') {
@@ -387,6 +460,7 @@ function addRow() {
     }
     
     gameState.rowCount++;
+    localStorage.setItem('wordle-rowcount-preference', gameState.rowCount);
     updateBoard();
     updateRowControls();
     saveGameState();
@@ -394,21 +468,16 @@ function addRow() {
 }
 
 function removeRow() {
-    // Minimum: max(3, currentRow + 1)
-    const minRows = Math.max(3, gameState.currentRow + 1);
+    // Minimum: can't drop below current row position, submitted guesses, or absolute minimum of 3
+    const minRows = Math.max(3, gameState.currentRow + 1, gameState.guesses.length);
     
     if (gameState.rowCount <= minRows) {
         showMessage(`Cannot remove: need at least ${minRows} rows`);
         return;
     }
     
-    // Check if removing would delete submitted guesses
-    if (gameState.guesses.length >= gameState.rowCount) {
-        showMessage('Cannot remove: would delete guesses');
-        return;
-    }
-    
     gameState.rowCount--;
+    localStorage.setItem('wordle-rowcount-preference', gameState.rowCount);
     updateBoard();
     updateRowControls();
     saveGameState();
@@ -425,10 +494,8 @@ function updateRowControls() {
     addBtn.disabled = gameState.rowCount >= 12 || gameState.gameOver;
     
     // Disable remove if at minimum or game over
-    const minRows = Math.max(3, gameState.currentRow + 1);
-    removeBtn.disabled = gameState.rowCount <= minRows || 
-                        gameState.guesses.length >= gameState.rowCount ||
-                        gameState.gameOver;
+    const minRows = Math.max(3, gameState.currentRow + 1, gameState.guesses.length);
+    removeBtn.disabled = gameState.rowCount <= minRows || gameState.gameOver;
 }
 
 // ============================================
@@ -473,7 +540,14 @@ async function nukeGame() {
 // ============================================
 
 async function newGame() {
-    // Reset game state
+    // Reset submission lock
+    isRevealing = false;
+    
+    // Get preferred row count (persist user's choice or default to 6)
+    const rowCountPreference = localStorage.getItem('wordle-rowcount-preference');
+    const preferredRowCount = rowCountPreference ? parseInt(rowCountPreference) : 6;
+    
+    // Reset game state with preserved/preferred row count
     gameState = {
         guesses: [],
         currentRow: 0,
@@ -481,7 +555,7 @@ async function newGame() {
         currentCellIndex: 0,
         gameOver: false,
         won: false,
-        rowCount: 6
+        rowCount: Math.max(3, Math.min(12, preferredRowCount))
     };
     
     // Pick new word
@@ -582,6 +656,9 @@ function updateKeyboard() {
 }
 
 function handleKeyPress(key) {
+    if (gameState.gameOver) return;
+    if (isRevealing) return;
+    
     if (key === 'ENTER') {
         submitGuess();
     } else if (key === '⌫') {
@@ -594,13 +671,29 @@ function handleKeyPress(key) {
 function setupEventListeners() {
     // Physical keyboard
     document.addEventListener('keydown', (e) => {
+        const confirmOpen = document.getElementById('confirm-dialog')?.classList.contains('show');
+        const endgameOpen = document.getElementById('endgame-modal')?.classList.contains('show');
+        const anyModalOpen = document.querySelector('.modal.show') !== null;
+
+        // If confirm dialog is open, it owns keyboard input
+        if (confirmOpen) return;
+
+        // Allow Enter to start new game ONLY when endgame modal is open
+        if (endgameOpen && e.key === 'Enter') {
+            e.preventDefault();
+            closeEndGameModal();
+            newGame();
+            return;
+        }
+
+        // Block gameplay input when any other modal is open
+        if (anyModalOpen) return;
+
         if (gameState.gameOver) return;
-        
-        // Don't interfere with modal inputs
-        if (document.querySelector('.modal[style*="block"]')) return;
-        
+        if (isRevealing) return;
+
         const key = e.key;
-        
+
         if (key === 'Enter') {
             e.preventDefault();
             submitGuess();
@@ -623,56 +716,70 @@ function setupEventListeners() {
     });
     
     // Control buttons
-    document.getElementById('new-game-btn').addEventListener('click', newGame);
-    document.getElementById('add-row-btn').addEventListener('click', addRow);
-    document.getElementById('remove-row-btn').addEventListener('click', removeRow);
-    document.getElementById('nuke-btn').addEventListener('click', nukeGame);
-    document.getElementById('settings-btn').addEventListener('click', showSettingsModal);
-    document.getElementById('stats-btn').addEventListener('click', showStatsModal);
-    document.getElementById('theme-toggle').addEventListener('click', toggleDarkMode);
+    document.getElementById('new-game-btn')?.addEventListener('click', newGame);
+    document.getElementById('add-row-btn')?.addEventListener('click', addRow);
+    document.getElementById('remove-row-btn')?.addEventListener('click', removeRow);
+    document.getElementById('nuke-btn')?.addEventListener('click', nukeGame);
+    document.getElementById('settings-btn')?.addEventListener('click', showSettingsModal);
+    document.getElementById('stats-btn')?.addEventListener('click', showStatsModal);
+    document.getElementById('theme-toggle')?.addEventListener('click', toggleDarkMode);
     
     // Word length selector
-    document.getElementById('word-length-select').addEventListener('change', (e) => {
+    document.getElementById('word-length-select')?.addEventListener('change', (e) => {
         changeWordLength(e.target.value);
     });
     
     // Settings toggles
-    document.getElementById('warn-ruled-out-toggle').addEventListener('change', (e) => {
-        settings.warnRuledOut = e.checked;
+    document.getElementById('warn-ruled-out-toggle')?.addEventListener('change', (e) => {
+        settings.warnRuledOut = e.target.checked;
         saveSettings();
     });
     
     // Stats modal buttons
-    document.getElementById('share-stats-btn').addEventListener('click', shareStats);
-    document.getElementById('reset-stats-btn').addEventListener('click', showResetConfirmation);
-    document.getElementById('play-again-btn').addEventListener('click', () => {
+    document.getElementById('share-stats-btn')?.addEventListener('click', shareStats);
+    document.getElementById('reset-stats-btn')?.addEventListener('click', showResetConfirmation);
+    document.getElementById('play-again-btn')?.addEventListener('click', () => {
         closeAllModals();
         newGame();
     });
     
     // Reset confirmation
-    document.getElementById('reset-confirm-btn').addEventListener('click', () => {
+    document.getElementById('reset-confirm-btn')?.addEventListener('click', () => {
         resetStats();
         closeModal('reset-confirm-modal');
         showStatsModal();
     });
     
-    document.getElementById('reset-cancel-btn').addEventListener('click', () => {
+    document.getElementById('reset-cancel-btn')?.addEventListener('click', () => {
         closeModal('reset-confirm-modal');
+    });
+    
+    // End game modal
+    document.getElementById('endgame-new-game')?.addEventListener('click', () => {
+        closeEndGameModal();
+        newGame();
     });
     
     // Close buttons
     document.querySelectorAll('.close-btn').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const modalId = e.target.dataset.modal;
-            closeModal(modalId);
+            const modalId = e.currentTarget.dataset.modal;
+            if (modalId === 'endgame-modal') {
+                closeEndGameModal();
+            } else {
+                closeModal(modalId);
+            }
         });
     });
     
     // Close on outside click
     window.addEventListener('click', (e) => {
-        if (e.target.classList.contains('modal')) {
-            e.target.style.display = 'none';
+        if (!e.target.classList.contains('modal')) return;
+        if (e.target.id === 'confirm-dialog') return; // Let showConfirmDialog handle its own backdrop
+        if (e.target.id === 'endgame-modal') {
+            closeEndGameModal();
+        } else {
+            e.target.classList.remove('show');
         }
     });
 }
@@ -692,25 +799,29 @@ function shakeRow() {
     }
 }
 
-async function animateReveal() {
+// Reveal animation - returns Promise that resolves when animation completes
+async function animateReveal(guess) {
     const rows = document.querySelectorAll('.row');
     const currentRowElement = rows[gameState.currentRow];
     if (!currentRowElement) return;
     
     const tiles = currentRowElement.querySelectorAll('.tile');
-    const guess = gameState.currentRowLetters.join('');
     const result = checkGuess(guess);
     
+    // Animate each tile with delay
     for (let i = 0; i < tiles.length; i++) {
         await new Promise(resolve => setTimeout(resolve, 200));
         tiles[i].classList.add('flip');
         tiles[i].classList.add(result[i]);
     }
     
+    // Wait for final tile animation to complete
     await new Promise(resolve => setTimeout(resolve, 300));
     
     // Update keyboard colors after reveal
     updateKeyboard();
+    
+    // Animation complete - Promise resolves here
 }
 
 // ============================================
@@ -747,7 +858,8 @@ async function loadGameState() {
             gameState.won = state.won || false;
             gameState.rowCount = state.rowCount || 6;
             
-            document.getElementById('word-length-select').value = currentWordLength;
+            const wordLengthSelect = document.getElementById('word-length-select');
+            if (wordLengthSelect) wordLengthSelect.value = currentWordLength;
         } catch (e) {
             console.error('Error loading game state:', e);
             gameState.currentRowLetters = Array(currentWordLength).fill('');
@@ -813,7 +925,10 @@ function loadSettings() {
 
 function showMessage(text, duration = 1500) {
     const toast = document.getElementById('toast');
-    if (!toast) return;
+    if (!toast) {
+        console.error('toast element not found');
+        return;
+    }
     
     toast.textContent = text;
     toast.classList.add('show');
@@ -821,6 +936,42 @@ function showMessage(text, duration = 1500) {
     setTimeout(() => {
         toast.classList.remove('show');
     }, duration);
+}
+
+// Alias for clarity
+function showToast(text, duration = 1500) {
+    showMessage(text, duration);
+}
+
+// ============================================
+// END GAME MODAL
+// ============================================
+
+function showEndGameModal(won, answer = '') {
+    const modal = document.getElementById('endgame-modal');
+    const title = document.getElementById('endgame-title');
+    const answerContainer = document.getElementById('endgame-answer-container');
+    const answerPill = document.getElementById('endgame-answer');
+    
+    if (!modal) return;
+    
+    if (won) {
+        title.textContent = 'You Won! 🏆';
+        answerContainer.style.display = 'none';
+    } else {
+        title.textContent = 'You Lost!';
+        answerContainer.style.display = 'block';
+        answerPill.textContent = answer;
+    }
+    
+    modal.classList.add('show');
+}
+
+function closeEndGameModal() {
+    const modal = document.getElementById('endgame-modal');
+    if (modal) {
+        modal.classList.remove('show');
+    }
 }
 
 function showConfetti() {
@@ -942,7 +1093,7 @@ function updateDistributionChart() {
         label.textContent = index + 1;
         
         const barWrapper = document.createElement('div');
-        barWrapper.className = 'distribution-bar-wrapper';
+        barWrapper.className = 'distribution-bar-container';
         
         const bar = document.createElement('div');
         bar.className = 'distribution-bar';
@@ -956,8 +1107,8 @@ function updateDistributionChart() {
         countLabel.className = 'distribution-count';
         countLabel.textContent = count;
         
-        bar.appendChild(countLabel);
         barWrapper.appendChild(bar);
+        barWrapper.appendChild(countLabel);
         
         barContainer.appendChild(label);
         barContainer.appendChild(barWrapper);
@@ -977,61 +1128,111 @@ function showResetConfirmation() {
 function showModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
-        modal.style.display = 'block';
+        modal.classList.add('show');
+        
+        // Focus first focusable element for accessibility
+        setTimeout(() => {
+            const focusable = modal.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            if (focusable) focusable.focus();
+        }, 100);
     }
 }
 
 function closeModal(modalId) {
     const modal = document.getElementById(modalId);
     if (modal) {
-        modal.style.display = 'none';
+        modal.classList.remove('show');
     }
 }
 
 function closeAllModals() {
     document.querySelectorAll('.modal').forEach(modal => {
-        modal.style.display = 'none';
+        modal.classList.remove('show');
     });
 }
 
 function showConfirmDialog(message) {
     return new Promise((resolve) => {
+        // Close any existing confirm dialog first
+        if (activeConfirm) {
+            activeConfirm.cleanup();
+            activeConfirm.resolve(false);
+            activeConfirm = null;
+        }
+        
         const modal = document.getElementById('confirm-dialog');
         const messageEl = document.getElementById('confirm-message');
         const confirmBtn = document.getElementById('confirm-submit');
         const cancelBtn = document.getElementById('confirm-cancel');
         
-        if (!modal || !messageEl) {
+        // Validate all required elements exist
+        if (!modal || !messageEl || !confirmBtn || !cancelBtn) {
+            console.error('confirm-dialog elements missing:', { modal, messageEl, confirmBtn, cancelBtn });
             resolve(false);
             return;
         }
         
         messageEl.textContent = message;
-        modal.style.display = 'block';
         
         const handleConfirm = () => {
             cleanup();
+            activeConfirm = null;
             resolve(true);
         };
         
         const handleCancel = () => {
             cleanup();
+            activeConfirm = null;
             resolve(false);
         };
         
-        const cleanup = () => {
-            modal.style.display = 'none';
-            confirmBtn.removeEventListener('click', handleConfirm);
-            cancelBtn.removeEventListener('click', handleCancel);
+        // ESC/Enter key handler
+        const handleEscape = (e) => {
+            if (e.key === 'Escape') {
+                handleCancel();
+            } else if (e.key === 'Enter') {
+                handleConfirm();
+            }
         };
         
+        // Backdrop click handler
+        const handleBackdrop = (e) => {
+            if (e.target === modal) {
+                handleCancel();
+            }
+        };
+        
+        const cleanup = () => {
+            modal.classList.remove('show');
+            confirmBtn.removeEventListener('click', handleConfirm);
+            cancelBtn.removeEventListener('click', handleCancel);
+            document.removeEventListener('keydown', handleEscape);
+            modal.removeEventListener('click', handleBackdrop);
+        };
+        
+        // Track this dialog BEFORE showing modal
+        activeConfirm = { resolve, cleanup };
+        
+        // Ensure modal is attached to body (in case it got moved)
+        if (modal.parentNode !== document.body) {
+            document.body.appendChild(modal);
+        }
+        
+        // Attach all event listeners
         confirmBtn.addEventListener('click', handleConfirm);
         cancelBtn.addEventListener('click', handleCancel);
+        document.addEventListener('keydown', handleEscape);
+        modal.addEventListener('click', handleBackdrop);
+        
+        // Show modal using class
+        modal.classList.add('show');
+        
+        // Focus cancel button for accessibility
+        setTimeout(() => cancelBtn.focus(), 100);
     });
 }
 
 async function shareStats() {
-    const emoji = gameState.won ? '🟩' : '🟥';
     const score = gameState.won ? `${gameState.currentRow + 1}/${gameState.rowCount}` : 'X';
     
     let shareText = `Wordle ${score}\n\n`;
@@ -1069,19 +1270,11 @@ window.WordleActions = {
     newGame: newGame,
     submitGuess: submitGuess,
     getGameState: () => ({ ...gameState }),
-    getStreak: () => ({ ...streakData }),
-    getStats: () => ({ ...stats })
+    getStreak: () => ({ currentStreak: stats.currentStreak, maxStreak: stats.maxStreak }),
+    getStats: () => ({ ...stats }),
+    
+    // TikFinity-friendly helpers (aliased from WordleHelpers in actions.js)
+    setRowCount: (count) => window.WordleHelpers?.setRowCount(count),
+    addRows: (count) => window.WordleHelpers?.addRows(count)
 };
 
-// Expose for debugging
-if (settings.revealAnswer) {
-    window.DEBUG = {
-        gameState,
-        stats,
-        streakData,
-        targetWord: () => targetWord
-    };
-}
-
-// Load theme preference on startup
-loadTheme();

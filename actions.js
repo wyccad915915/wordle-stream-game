@@ -13,6 +13,12 @@
  *   // Remove a row
  *   window.WordleActions.removeRow();
  * 
+ *   // Set row count directly (TikFinity helper)
+ *   window.WordleActions.setRowCount(8);
+ * 
+ *   // Add multiple rows at once (TikFinity helper)
+ *   window.WordleActions.addRows(3);
+ * 
  *   // Nuke the game (resets streak and starts fresh)
  *   window.WordleActions.nukeGame();
  * 
@@ -28,8 +34,8 @@
  * 
  *   // Get streak information
  *   const streak = window.WordleActions.getStreak();
- *   console.log('Current streak:', streak.current);
- *   console.log('Best streak:', streak.best);
+ *   console.log('Current streak:', streak.currentStreak);
+ *   console.log('Max streak:', streak.maxStreak);
  * 
  *   // Get statistics
  *   const stats = window.WordleActions.getStats();
@@ -64,6 +70,46 @@ function safeAction(actionName, ...args) {
     }
 }
 
+// TikFinity-friendly helpers (exposed on window.WordleActions)
+const WordleHelpers = {
+    // Set row count directly (safe wrapper)
+    setRowCount(count) {
+        if (!isGameReady()) return false;
+        
+        let state = window.WordleActions.getGameState();
+        const minRows = Math.max(3, state.currentRow + 1, state.guesses.length);
+        const targetCount = Math.max(minRows, Math.min(12, count));
+        
+        // Add rows (re-read state each iteration to avoid infinite loop)
+        while (true) {
+            state = window.WordleActions.getGameState();
+            if (state.rowCount >= targetCount) break;
+            window.WordleActions.addRow();
+        }
+        
+        // Remove rows (re-read state each iteration)
+        while (true) {
+            state = window.WordleActions.getGameState();
+            if (state.rowCount <= targetCount || state.rowCount <= minRows) break;
+            window.WordleActions.removeRow();
+        }
+        
+        return true;
+    },
+    
+    // Add multiple rows at once
+    addRows(count) {
+        if (!isGameReady()) return false;
+        for (let i = 0; i < count; i++) {
+            window.WordleActions.addRow();
+        }
+        return true;
+    }
+};
+
+// Expose helpers on window for easy access
+window.WordleHelpers = WordleHelpers;
+
 // Export safe wrappers for ES6 module usage (optional)
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -74,7 +120,9 @@ if (typeof module !== 'undefined' && module.exports) {
         submitGuess: () => safeAction('submitGuess'),
         getGameState: () => safeAction('getGameState'),
         getStreak: () => safeAction('getStreak'),
-        getStats: () => safeAction('getStats')
+        getStats: () => safeAction('getStats'),
+        setRowCount: window.WordleHelpers.setRowCount,
+        addRows: window.WordleHelpers.addRows
     };
 }
 
