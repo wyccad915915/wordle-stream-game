@@ -35,6 +35,9 @@
     --modal-overlay: rgba(0, 0, 0, 0.5);
     --button-primary: #6aaa64;
     --button-secondary: #787c7e;
+    
+    /* Ghost letters (hint opacity) */
+    --ghost-opacity: 0.12;
 }
 
 body.dark-mode {
@@ -281,6 +284,16 @@ body {
     font-weight: bold;
     text-transform: uppercase;
     transition: border-color 0.2s;
+    /* Tile hardening - prevent selection/editing */
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+}
+
+/* Ghost letters (faint watermark hints) */
+.tile .ghost {
+    opacity: var(--ghost-opacity);
+    color: inherit;
 }
 
 /* Tile states */
@@ -826,45 +839,6 @@ input:checked + .toggle-slider:before {
         min-width: 55px;
         font-size: 11px;
     }
-}
-
-/* ============================================
-   FEATURE: Active Cell Highlighting
-   ============================================ */
-.tile {
-    cursor: pointer;
-    transition: all 0.15s ease;
-}
-
-.tile.active-cell {
-    border: 3px solid #2196F3 !important;
-    box-shadow: 0 0 12px rgba(33, 150, 243, 0.6);
-    animation: pulse-cell 1.5s infinite;
-    transform: scale(1.05);
-}
-
-@keyframes pulse-cell {
-    0%, 100% {
-        box-shadow: 0 0 12px rgba(33, 150, 243, 0.6);
-    }
-    50% {
-        box-shadow: 0 0 20px rgba(33, 150, 243, 0.9);
-    }
-}
-
-.tile.submitted {
-    cursor: default;
-}
-
-.tile:not(.submitted):hover {
-    border-color: var(--text-primary);
-    opacity: 0.8;
-}
-
-/* Dark mode adjustments */
-body.dark-mode .tile.active-cell {
-    border-color: #64B5F6 !important;
-    box-shadow: 0 0 12px rgba(100, 181, 246, 0.7);
 }
 
 /* ============================================
