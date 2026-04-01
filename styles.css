@@ -931,3 +931,43 @@ input:checked + .toggle-slider:before {
     color: var(--text-secondary);
     font-style: italic;
 }
+
+/* Round timer shown in end-game modal */
+.endgame-timer {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+}
+
+/* Definition toggle button in endgame modal */
+.def-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
+    margin-bottom: 8px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.def-toggle-btn:hover {
+    color: var(--text-primary);
+}
+
+/* Word definition shown in end-game modal */
+.endgame-definition {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-style: italic;
+    line-height: 1.5;
+    padding: 10px 14px;
+    margin-bottom: 20px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    text-align: left;
+}

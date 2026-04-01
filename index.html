@@ -196,9 +196,17 @@
             <button class="close-btn" data-modal="endgame-modal">&times;</button>
             <div class="endgame-body">
                 <h2 id="endgame-title">You Won! 🏆</h2>
-                <div id="endgame-answer-container" style="display: none;">
-                    <p class="endgame-text">The answer was:</p>
+                <!-- Round solve time (populated by JS after round ends) -->
+                <div id="endgame-timer" class="endgame-timer" style="display: none;"></div>
+                <!-- Answer word - always visible after round ends -->
+                <div id="endgame-answer-container">
+                    <p class="endgame-text" id="endgame-answer-label">The word was:</p>
                     <div id="endgame-answer" class="answer-pill"></div>
+                </div>
+                <!-- Definition toggle + collapsible content (populated by JS, collapsed by default) -->
+                <div id="endgame-def-section" style="display: none;">
+                    <button id="endgame-def-toggle" class="def-toggle-btn">Show definition</button>
+                    <div id="endgame-definition" class="endgame-definition" style="display: none;"></div>
                 </div>
                 <button id="endgame-new-game" class="primary-btn">NEW GAME</button>
                 <p class="endgame-hint">or press Enter to play again</p>
@@ -206,6 +214,7 @@
         </div>
     </div>
 
+    <script src="definitions.js"></script>
     <script src="app.js"></script>
     <script src="actions.js"></script>
     <!-- Confetti library (lightweight, ~3KB) -->
